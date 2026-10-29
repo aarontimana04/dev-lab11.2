@@ -68,7 +68,8 @@ trivy-scan:
   script:
     - echo "🔍 Ejecutando Trivy (SCA)..."
     # package-lock.json debe estar versionado en el repo: sin lockfile Trivy no detecta dependencias npm
-    - test -f package-lock.json || { echo "❌ Falta package-lock.json, no hay SCA"; exit 1; }
+    - |
+      test -f package-lock.json || { echo "❌ Falta package-lock.json, no hay SCA"; exit 1; }
     - trivy filesystem . --scanners vuln --format json --severity HIGH,CRITICAL --output $REPORTS_DIR/trivy-report.json || true
     - trivy filesystem . --scanners vuln --format template --template '@contrib/gitlab.tpl' --output $REPORTS_DIR/gl-dependency-scanning-report.json --severity HIGH,CRITICAL || true
     - trivy filesystem . --scanners vuln --format table --output $REPORTS_DIR/trivy-table.txt --severity HIGH,CRITICAL || true
