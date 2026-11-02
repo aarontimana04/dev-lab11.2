@@ -1,3 +1,5 @@
 node_modules/
 reports/
 sbom/
+
+.DS_Store

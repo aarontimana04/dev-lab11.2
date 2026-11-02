@@ -1,108 +1,134 @@
 stages:
-  - prepare
-  - secret_scanning
-  - sca
-  - sast
-
-# Preparación
+- prepare
+- secret_scanning
+- sca
+- sast
+- defectdojo
 prepare:
   image: node:20
   stage: prepare
   script:
-    - node --version
-    - npm ci --ignore-scripts || true
+  - node --version
+  - npm ci --ignore-scripts || true
   artifacts:
     paths:
-      - node_modules/
+    - node_modules/
     expire_in: 1h
   rules:
-    - when: always
-
-# Secret Scanning con Gitleaks
+  - when: always
 gitleaks-scan:
   image: alpine:3.18
   stage: secret_scanning
   before_script:
-    - apk add --no-cache git curl tar gzip
+  - apk add --no-cache git curl tar gzip
   script:
-    - GITLEAKS_VERSION=8.27.2
-    - curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
-    - tar -xzf gitleaks.tar.gz
-    - chmod +x gitleaks
-    - ./gitleaks detect --source . --report-path gitleaks-report.json || true
+  - GITLEAKS_VERSION=8.27.2
+  - curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+    -o gitleaks.tar.gz
+  - tar -xzf gitleaks.tar.gz
+  - chmod +x gitleaks
+  - ./gitleaks detect --source . --report-path gitleaks-report.json
   artifacts:
     paths:
-      - gitleaks-report.json
+    - gitleaks-report.json
     expire_in: 1 week
-  allow_failure: true
+    when: always
   rules:
-    - when: always
-
-# Secret Scanning con TruffleHog
+  - when: always
+  dependencies: []
 trufflehog-scan:
   image: ubuntu:22.04
   stage: secret_scanning
   before_script:
-    - apt-get update -y && apt-get install -y git curl jq python3 python3-pip --no-install-recommends
+  - apt-get update -y && apt-get install -y git curl jq python3 python3-pip --no-install-recommends
   script:
-    - curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b .
-    - ./trufflehog filesystem . --results=verified,unknown --json > trufflehog-report.json || true
+  - curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh
+    | sh -s -- -b .
+  - ./trufflehog filesystem . --results=verified,unknown --json --fail > trufflehog-report.json
   artifacts:
     paths:
-      - trufflehog-report.json
+    - trufflehog-report.json
     expire_in: 1 week
-  allow_failure: true
+    when: always
   rules:
-    - when: always
-
-# SCA con Trivy
+  - when: always
+  dependencies: []
 trivy-scan:
   image:
     name: aquasec/trivy:latest
-    entrypoint: [""]
+    entrypoint:
+    - ''
   stage: sca
   variables:
     REPORTS_DIR: security-reports
   before_script:
-    - mkdir -p $REPORTS_DIR
+  - mkdir -p $REPORTS_DIR
   script:
-    - echo "🔍 Ejecutando Trivy (SCA)..."
-    # package-lock.json debe estar versionado en el repo: sin lockfile Trivy no detecta dependencias npm
-    - |
-      test -f package-lock.json || { echo "❌ Falta package-lock.json, no hay SCA"; exit 1; }
-    - trivy filesystem . --scanners vuln --format json --severity HIGH,CRITICAL --output $REPORTS_DIR/trivy-report.json || true
-    - trivy filesystem . --scanners vuln --format template --template '@contrib/gitlab.tpl' --output $REPORTS_DIR/gl-dependency-scanning-report.json --severity HIGH,CRITICAL || true
-    - trivy filesystem . --scanners vuln --format table --output $REPORTS_DIR/trivy-table.txt --severity HIGH,CRITICAL || true
-    - trivy filesystem . --scanners vuln --format cyclonedx --output $REPORTS_DIR/sbom.json || true
+  - echo "🔍 Ejecutando Trivy (SCA)..."
+  - 'test -f package-lock.json || { echo "❌ Falta package-lock.json, no hay SCA";
+    exit 1; }
+
+    '
+  - trivy filesystem . --scanners vuln --format json --severity HIGH,CRITICAL --output
+    $REPORTS_DIR/trivy-report.json || true
+  - trivy filesystem . --scanners vuln --format template --template '@contrib/gitlab.tpl'
+    --output $REPORTS_DIR/gl-dependency-scanning-report.json --severity HIGH,CRITICAL
+    || true
+  - trivy filesystem . --scanners vuln --format table --output $REPORTS_DIR/trivy-table.txt
+    --severity HIGH,CRITICAL || true
+  - trivy filesystem . --scanners vuln --format cyclonedx --output $REPORTS_DIR/sbom.json
+    || true
+  - trivy filesystem . --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format
+    table
   artifacts:
     paths:
-      - $REPORTS_DIR/
+    - $REPORTS_DIR/
     reports:
       dependency_scanning: $REPORTS_DIR/gl-dependency-scanning-report.json
     expire_in: 1 week
-  allow_failure: true
+    when: always
   rules:
-    - when: always
-
-# SAST con Semgrep
+  - when: always
+  dependencies: []
 semgrep-scan:
   image: semgrep/semgrep:latest
   stage: sast
-  needs:
-    - gitleaks-scan
-    - trufflehog-scan
   variables:
-    SEMGREP_SRC: "$CI_PROJECT_DIR"
+    SEMGREP_SRC: $CI_PROJECT_DIR
   script:
-    - echo "🔍 Ejecutando Semgrep (SAST)..."
-    - semgrep --version
-    - semgrep --config "p/ci" --config "p/security-audit" --config "p/javascript" --json --output semgrep-report.json "$SEMGREP_SRC" || true
-    - semgrep --config "p/ci" --config "p/security-audit" --config "p/javascript" "$SEMGREP_SRC" > semgrep-report.txt || true
+  - echo "🔍 Ejecutando Semgrep (SAST)..."
+  - semgrep --version
+  - semgrep --config "p/ci" --config "p/security-audit" --config "p/javascript" --json
+    --output semgrep-report.json "$SEMGREP_SRC" || true
+  - semgrep --config "p/ci" --config "p/security-audit" --config "p/javascript" "$SEMGREP_SRC"
+    > semgrep-report.txt || true
+  - semgrep --config "p/ci" --config "p/security-audit" --config "p/javascript" --error
+    "$SEMGREP_SRC"
   artifacts:
     paths:
-      - semgrep-report.json
-      - semgrep-report.txt
+    - semgrep-report.json
+    - semgrep-report.txt
     expire_in: 1 week
-  allow_failure: true
+    when: always
   rules:
-    - when: always
+  - when: always
+  dependencies: []
+upload-defectdojo:
+  image: alpine:3.22
+  stage: defectdojo
+  dependencies:
+  - gitleaks-scan
+  - trufflehog-scan
+  - trivy-scan
+  - semgrep-scan
+  before_script:
+  - apk add --no-cache bash curl jq
+  script:
+  - bash scripts/upload_to_defectdojo.sh "Gitleaks Scan" "gitleaks-report.json"
+  - bash scripts/upload_to_defectdojo.sh "Trufflehog Scan" "trufflehog-report.json"
+  - bash scripts/upload_to_defectdojo.sh "Trivy Scan" "security-reports/trivy-report.json"
+  - bash scripts/upload_to_defectdojo.sh "Semgrep JSON Report" "semgrep-report.json"
+  rules:
+  - if: $DEFECTDOJO_URL == null
+    when: never
+  - when: always
